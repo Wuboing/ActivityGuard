@@ -42,6 +42,7 @@ fi
   "$PROJECT_DIR/Sources/ActivityGuardApp/Views/"*.swift \
   "$PROJECT_DIR/Sources/ActivityGuardApp/StatusBar/"*.swift \
   "$PROJECT_DIR/Sources/ActivityGuardApp/Services/"*.swift \
+  "$PROJECT_DIR/Sources/ActivityGuardApp/Extensions/"*.swift \
   -sdk "$SDK_PATH" \
   -framework SwiftUI \
   -framework IOKit \

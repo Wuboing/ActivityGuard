@@ -20,7 +20,7 @@ struct MenuBarPopover: View {
                 ForEach(viewModel.anomalies.prefix(3)) { anomaly in
                     HStack {
                         Image(systemName: anomaly.kind.icon)
-                            .foregroundStyle(anomalyColor(anomaly.kind))
+                            .foregroundStyle(anomaly.displayColor(theme: MonitorTheme(scheme: viewModel.colorScheme)))
                             .frame(width: 16)
                         Text(anomaly.processName).lineLimit(1)
                         Spacer()
@@ -77,14 +77,5 @@ struct MenuBarPopover: View {
         }
         .padding()
         .frame(width: 280)
-    }
-
-    private func anomalyColor(_ kind: AnomalyKind) -> Color {
-        switch kind {
-        case .highCPU: return .red
-        case .memoryLeak: return .orange
-        case .zombie: return .gray
-        case .highEnergy: return .yellow
-        }
     }
 }

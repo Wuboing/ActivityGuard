@@ -383,7 +383,7 @@ struct DashboardView: View {
                 icon: "bell.badge.fill",
                 title: L10n.tr("anomaly_alerts", lang),
                 theme: theme,
-                tint: viewModel.anomalies.isEmpty ? theme.textSecondary : theme.warning
+                tint: anomalyCardTint
             )
 
             if viewModel.anomalies.isEmpty {
@@ -530,10 +530,26 @@ struct DashboardView: View {
         }
     }
 
+    private var anomalyCardTint: Color {
+        guard !viewModel.anomalies.isEmpty else { return theme.textSecondary }
+        let hasCritical = viewModel.anomalies.contains { anomaly in
+            switch anomaly.kind {
+            case .zombie, .highCPU: return true
+            case .memoryLeak: return anomaly.memoryLeakSeverity == .severe
+            case .highEnergy: return false
+            }
+        }
+        return hasCritical ? theme.danger : theme.warning
+    }
+
     private func kindColor(_ kind: AnomalyKind) -> Color {
         switch kind {
         case .highCPU: return theme.danger
-        case .memoryLeak: return theme.warning
+        case .memoryLeak:
+            let hasSevere = viewModel.anomalies.contains {
+                $0.kind == .memoryLeak && $0.memoryLeakSeverity == .severe
+            }
+            return hasSevere ? theme.danger : theme.warning
         case .zombie: return theme.textTertiary
         case .highEnergy: return theme.warning
         }

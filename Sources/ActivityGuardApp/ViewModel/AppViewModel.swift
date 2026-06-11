@@ -33,6 +33,9 @@ final class AppViewModel: ObservableObject {
     @AppStorage("anomalyNotifications") var anomalyNotificationsEnabled = true
     @AppStorage("temperatureNotifications") var temperatureNotificationsEnabled = true
     @AppStorage("notificationIntervalSeconds") var notificationIntervalSeconds: Int = NotificationInterval.defaultValue.rawValue
+    @AppStorage("memoryLeakWhitelist") var memoryLeakWhitelistText: String = MemoryLeakConfig.defaultWhitelistString
+    @AppStorage("memoryLeakSevereGrowthMB") var memoryLeakSevereGrowthMB: Int = MemoryLeakConfig.defaultSevereGrowthThresholdMB
+    @AppStorage("anomalyPersistenceSeconds") var anomalyPersistenceSeconds: Int = AnomalyStabilizer.defaultPersistenceSeconds
     @AppStorage("menuBarMetric") private var menuBarMetricRaw: String = MenuBarMetric.cpu.rawValue
 
     var menuBarMetric: MenuBarMetric {
@@ -49,7 +52,9 @@ final class AppViewModel: ObservableObject {
     }
 
     private var timer: Timer?
+    private var persistenceTimer: Timer?
     private var filterCancellables = Set<AnyCancellable>()
+    private let anomalyStabilizer = AnomalyStabilizer()
     private var previousSnapshots: [Int32: (cpuTime: UInt64, timestamp: Date)] = [:]
     private var lastSystemSampleTicks: SystemCPUTicks?
     private var lastSystemSampleTime: Date?
@@ -98,6 +103,13 @@ final class AppViewModel: ObservableObject {
     }
 
     var theme: MonitorTheme { MonitorTheme(scheme: colorScheme) }
+
+    var memoryLeakConfig: MemoryLeakConfig {
+        MemoryLeakConfig(
+            whitelistedProcessNames: MemoryLeakConfig.parseWhitelist(memoryLeakWhitelistText),
+            severeGrowthThresholdMB: memoryLeakSevereGrowthMB
+        )
+    }
 
     init() {
         NotificationRouter.shared.viewModel = self
@@ -149,6 +161,7 @@ final class AppViewModel: ObservableObject {
 
     func startMonitoring() {
         isMonitoring = true
+        anomalyStabilizer.reset()
         lastSystemSampleTicks = CPUMonitor.getSystemCPUTicks()
         lastSystemSampleTime = Date()
         previousSnapshots = [:]
@@ -164,12 +177,19 @@ final class AppViewModel: ObservableObject {
         timer = Timer.scheduledTimer(withTimeInterval: refreshInterval, repeats: true) { [weak self] _ in
             Task { @MainActor [weak self] in await self?.refreshAsync() }
         }
+
+        persistenceTimer?.invalidate()
+        persistenceTimer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { [weak self] _ in
+            Task { @MainActor [weak self] in self?.applyStabilizedAnomalies() }
+        }
     }
 
     func stopMonitoring() {
         isMonitoring = false
         timer?.invalidate()
         timer = nil
+        persistenceTimer?.invalidate()
+        persistenceTimer = nil
     }
 
     /// Called when opening panel — refresh in background if data is stale.
@@ -269,24 +289,18 @@ final class AppViewModel: ObservableObject {
             ))
         }
 
-        let newAnomalies = detector.detect(
+        let rawAnomalies = detector.detect(
             snapshots: snapshots,
             systemCPU: systemCPU,
-            zombiePIDs: zombiePIDs
+            zombiePIDs: zombiePIDs,
+            memoryLeakConfig: memoryLeakConfig
         )
 
         processes = snapshots
         displayedProcesses = procsWithCPU
-        anomalies = newAnomalies
-        rebuildAnomalyLookup(newAnomalies)
+        anomalyStabilizer.updateRaw(rawAnomalies, at: now)
+        applyStabilizedAnomalies(at: now)
         lastProcessRefreshTime = now
-
-        AnomalyNotifier.shared.process(
-            anomalies: newAnomalies,
-            language: language,
-            enabled: anomalyNotificationsEnabled,
-            intervalSeconds: notificationInterval.seconds
-        )
 
         AnomalyNotifier.shared.processThermal(
             level: power.thermal,
@@ -297,6 +311,22 @@ final class AppViewModel: ObservableObject {
 
         previousSnapshots = Dictionary(
             uniqueKeysWithValues: snapshots.map { ($0.pid, ($0.cpuTime, now)) }
+        )
+    }
+
+    private func applyStabilizedAnomalies(at now: Date = Date()) {
+        let persistence = TimeInterval(AnomalyStabilizer.clampPersistenceSeconds(anomalyPersistenceSeconds))
+        let stabilized = anomalyStabilizer.stabilized(persistenceSeconds: persistence, at: now)
+        let changed = stabilized != anomalies
+        anomalies = stabilized
+        rebuildAnomalyLookup(stabilized)
+
+        guard changed else { return }
+        AnomalyNotifier.shared.process(
+            anomalies: stabilized,
+            language: language,
+            enabled: anomalyNotificationsEnabled,
+            intervalSeconds: notificationInterval.seconds
         )
     }
 
@@ -377,6 +407,7 @@ final class AppViewModel: ObservableObject {
             if forceResult != 0 { return false }
         }
         anomalies.removeAll { $0.pid == pid }
+        anomalyStabilizer.remove(pid: pid)
         displayedProcesses.removeAll { $0.pid == pid }
         toastMessage = L10n.tr("kill_success", language)
         Task {

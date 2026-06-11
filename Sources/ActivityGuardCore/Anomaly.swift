@@ -23,12 +23,24 @@ public struct Anomaly: Identifiable, Sendable, Hashable {
     public let processName: String
     public let reason: String
     public let value: Double
+    public let memoryLeakSeverity: MemoryLeakSeverity?
+    public let memoryGrowthBytes: UInt64?
 
-    public init(kind: AnomalyKind, pid: Int32, processName: String, reason: String, value: Double) {
+    public init(
+        kind: AnomalyKind,
+        pid: Int32,
+        processName: String,
+        reason: String,
+        value: Double,
+        memoryLeakSeverity: MemoryLeakSeverity? = nil,
+        memoryGrowthBytes: UInt64? = nil
+    ) {
         self.kind = kind
         self.pid = pid
         self.processName = processName
         self.reason = reason
         self.value = value
+        self.memoryLeakSeverity = memoryLeakSeverity
+        self.memoryGrowthBytes = memoryGrowthBytes
     }
 }

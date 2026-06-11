@@ -11,10 +11,23 @@ enum NotificationPermissionStatus: Sendable {
 final class AnomalyNotifier {
     static let shared = AnomalyNotifier()
 
-    /// Only these kinds trigger system notifications.
-    static let notifiableKinds: Set<AnomalyKind> = [.zombie]
+    /// Kinds that trigger system notifications. Memory leaks notify only when severe.
+    static let notifiableKinds: Set<AnomalyKind> = [.zombie, .memoryLeak]
+
+    private static func shouldNotify(_ anomaly: Anomaly) -> Bool {
+        switch anomaly.kind {
+        case .zombie:
+            return true
+        case .memoryLeak:
+            return anomaly.memoryLeakSeverity == .severe
+        default:
+            return false
+        }
+    }
 
     private var knownAnomalyIDs: Set<String> = []
+    /// Tracks severe memory leaks already notified (supports moderate → severe escalation).
+    private var notifiedSevereMemoryLeakIDs: Set<String> = []
     private var permissionRequested = false
     private var hasInitialized = false
     private var lastNotificationTime: Date?
@@ -100,26 +113,39 @@ final class AnomalyNotifier {
         enabled: Bool,
         intervalSeconds: TimeInterval
     ) {
-        let notifiable = anomalies.filter { Self.notifiableKinds.contains($0.kind) }
+        let notifiable = anomalies.filter { Self.shouldNotify($0) }
 
         guard enabled else {
             knownAnomalyIDs = Set(notifiable.map(\.id))
+            notifiedSevereMemoryLeakIDs = notifiedSevereMemoryLeakIDs.intersection(knownAnomalyIDs)
             pendingAnomalies = []
             return
         }
 
         let currentIDs = Set(notifiable.map(\.id))
+        notifiedSevereMemoryLeakIDs.formIntersection(currentIDs)
 
         guard hasInitialized else {
             knownAnomalyIDs = currentIDs
+            notifiedSevereMemoryLeakIDs = Set(
+                notifiable.filter { $0.kind == .memoryLeak && $0.memoryLeakSeverity == .severe }.map(\.id)
+            )
             hasInitialized = true
             return
         }
 
         guard canUseNotifications else { return }
 
-        let newAnomalies = notifiable.filter { !knownAnomalyIDs.contains($0.id) }
+        let newAnomalies = notifiable.filter { anomaly in
+            if anomaly.kind == .memoryLeak, anomaly.memoryLeakSeverity == .severe {
+                return !notifiedSevereMemoryLeakIDs.contains(anomaly.id)
+            }
+            return !knownAnomalyIDs.contains(anomaly.id)
+        }
         knownAnomalyIDs = currentIDs
+        for anomaly in notifiable where anomaly.kind == .memoryLeak && anomaly.memoryLeakSeverity == .severe {
+            notifiedSevereMemoryLeakIDs.insert(anomaly.id)
+        }
 
         if !newAnomalies.isEmpty {
             mergePending(newAnomalies)
@@ -167,7 +193,7 @@ final class AnomalyNotifier {
         let content = UNMutableNotificationContent()
         content.title = L10n.tr("anomaly_notification_title", language)
         content.subtitle = L10n.tr("anomaly_summary_subtitle", language, anomalies.count)
-        let preview = anomalies.prefix(3).map { "\($0.processName) (\($0.kind.localizedName))" }.joined(separator: ", ")
+        let preview = anomalies.prefix(3).map { "\($0.processName) (\($0.displayName))" }.joined(separator: ", ")
         let suffix = anomalies.count > 3 ? L10n.tr("anomaly_summary_more", language, anomalies.count - 3) : ""
         content.body = preview + suffix
         content.sound = .default
@@ -263,9 +289,20 @@ final class AnomalyNotifier {
         guard canUseNotifications else { return }
 
         let content = UNMutableNotificationContent()
-        content.title = L10n.tr("anomaly_notification_title", language)
-        content.subtitle = anomaly.processName
-        content.body = "\(anomaly.kind.localizedName): \(anomaly.reason)"
+        if anomaly.kind == .memoryLeak, anomaly.memoryLeakSeverity == .severe {
+            content.title = L10n.tr("memory_leak_severe_notification_title", language)
+            content.subtitle = anomaly.processName
+            if let growth = anomaly.memoryGrowthBytes {
+                let growthText = ByteCountFormatter.string(fromByteCount: Int64(growth), countStyle: .memory)
+                content.body = L10n.tr("memory_leak_severe_notification_body", language, growthText, anomaly.reason)
+            } else {
+                content.body = anomaly.reason
+            }
+        } else {
+            content.title = L10n.tr("anomaly_notification_title", language)
+            content.subtitle = anomaly.processName
+            content.body = "\(anomaly.kind.localizedName): \(anomaly.reason)"
+        }
         content.sound = .default
         content.userInfo = notificationUserInfo(for: [anomaly])
 

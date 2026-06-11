@@ -238,7 +238,7 @@ struct MonitorProcessRow: View {
             if let anomaly {
                 Image(systemName: anomaly.kind.icon)
                     .font(.system(size: 12))
-                    .foregroundStyle(anomalyColor(anomaly.kind))
+                    .foregroundStyle(anomaly.displayColor(theme: theme))
                     .frame(width: 16)
             }
 
@@ -295,14 +295,5 @@ struct MonitorProcessRow: View {
         )
         .padding(.horizontal, 4)
         .onHover { hovered = $0 }
-    }
-
-    private func anomalyColor(_ kind: AnomalyKind) -> Color {
-        switch kind {
-        case .highCPU: return theme.danger
-        case .memoryLeak: return theme.warning
-        case .zombie: return theme.textTertiary
-        case .highEnergy: return theme.warning
-        }
     }
 }
