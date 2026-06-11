@@ -67,9 +67,26 @@
 ## Build from Source
 
 ```bash
-git clone git@github.com:Wuboing/ActivityGuard.git
+git clone https://github.com/Wuboing/ActivityGuard.git
 cd ActivityGuard
+bash scripts/setup-git-direct.sh   # 配置直连 GitHub（绕过 githubproxy）
 bash scripts/build-dmg.sh
+```
+
+### Git 推送（不走 githubproxy）
+
+全局 git 镜像会把 `github.com` 重写到 `githubproxy.cc`，导致 push 失败。在本仓库执行一次：
+
+```bash
+bash scripts/setup-git-direct.sh
+```
+
+之后在本仓库使用：
+
+```bash
+git p origin <branch>    # push
+git pl origin <branch>   # pull
+git f origin             # fetch
 ```
 
 产物路径：
