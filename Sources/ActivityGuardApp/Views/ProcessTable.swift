@@ -137,7 +137,7 @@ private struct ProcessTableRow: View {
                 if let anomaly {
                     Image(systemName: anomaly.kind.icon)
                         .font(.system(size: 11))
-                        .foregroundStyle(anomalyColor(anomaly.kind))
+                        .foregroundStyle(anomaly.displayColor(theme: theme))
                 }
                 Text(proc.name)
                     .font(.system(size: 14, design: .rounded))
@@ -146,9 +146,9 @@ private struct ProcessTableRow: View {
             .frame(maxWidth: .infinity, alignment: .leading)
 
             if showAnomalies {
-                Text(anomaly?.kind.localizedName ?? "")
+                Text(anomaly?.displayName ?? "")
                     .font(.system(size: 12, design: .rounded))
-                    .foregroundStyle(anomaly.map { anomalyColor($0.kind) } ?? theme.textTertiary)
+                    .foregroundStyle(anomaly.map { $0.displayColor(theme: theme) } ?? theme.textTertiary)
                     .frame(width: 80, alignment: .leading)
                     .lineLimit(1)
                 Text(anomaly?.reason ?? "")
@@ -225,14 +225,5 @@ private struct ProcessTableRow: View {
         .padding(.horizontal, 4)
         .contentShape(Rectangle())
         .onHover { hovered = $0 }
-    }
-
-    private func anomalyColor(_ kind: AnomalyKind) -> Color {
-        switch kind {
-        case .highCPU: return theme.danger
-        case .memoryLeak: return theme.warning
-        case .zombie: return theme.textTertiary
-        case .highEnergy: return theme.warning
-        }
     }
 }

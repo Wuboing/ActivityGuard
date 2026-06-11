@@ -57,14 +57,31 @@ final class StatusBarController: NSObject {
         guard let button = statusItem?.button, let viewModel else { return }
 
         let hasAnomaly = !viewModel.anomalies.isEmpty
+        let isCritical = viewModel.anomalies.contains { anomaly in
+            switch anomaly.kind {
+            case .zombie, .highCPU:
+                return true
+            case .memoryLeak:
+                return anomaly.memoryLeakSeverity == .severe
+            case .highEnergy:
+                return false
+            }
+        }
         let metric = viewModel.menuBarMetric
-        let (text, iconName, isAlert) = menuBarContent(metric: metric, viewModel: viewModel, hasAnomaly: hasAnomaly)
+        let (text, iconName, isAlert) = menuBarContent(
+            metric: metric,
+            viewModel: viewModel,
+            hasAnomaly: hasAnomaly,
+            isCritical: isCritical
+        )
 
         let attr = NSMutableAttributedString(
             string: text,
             attributes: [
                 .font: NSFont.monospacedDigitSystemFont(ofSize: 11, weight: .medium),
-                .foregroundColor: isAlert ? NSColor.systemRed : NSColor.labelColor,
+                .foregroundColor: isAlert
+                    ? (isCritical ? NSColor.systemRed : NSColor.systemOrange)
+                    : NSColor.labelColor,
             ]
         )
         if let icon = NSImage(systemSymbolName: iconName, accessibilityDescription: nil) {
@@ -84,10 +101,12 @@ final class StatusBarController: NSObject {
     private func menuBarContent(
         metric: MenuBarMetric,
         viewModel: AppViewModel,
-        hasAnomaly: Bool
+        hasAnomaly: Bool,
+        isCritical: Bool
     ) -> (text: String, icon: String, alert: Bool) {
         if hasAnomaly {
-            return (" \(viewModel.anomalies.count) ", "exclamationmark.triangle.fill", true)
+            let icon = isCritical ? "exclamationmark.triangle.fill" : "exclamationmark.circle.fill"
+            return (" \(viewModel.anomalies.count) ", icon, true)
         }
 
         switch metric {

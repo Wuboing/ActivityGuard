@@ -39,7 +39,8 @@ public class AnomalyDetector {
     public func detect(
         snapshots: [ProcessSnapshot],
         systemCPU: SystemCPU,
-        zombiePIDs: Set<pid_t> = []
+        zombiePIDs: Set<pid_t> = [],
+        memoryLeakConfig: MemoryLeakConfig = MemoryLeakConfig()
     ) -> [Anomaly] {
         let now = Date()
         var anomalies: [Anomaly] = []
@@ -88,13 +89,15 @@ public class AnomalyDetector {
                 ))
             }
 
-            if history.count >= thresholds.memoryLeakSamples {
+            if history.count >= thresholds.memoryLeakSamples,
+               !memoryLeakConfig.isWhitelisted(processName: snap.name) {
                 let firstRSS = history.first!.rss
                 let lastRSS = curr.rss
                 let growth = lastRSS > firstRSS ? lastRSS - firstRSS : 0
                 if firstRSS >= thresholds.memoryLeakMinRSS,
                    Double(lastRSS) >= Double(firstRSS) * thresholds.memoryLeakGrowthFactor,
                    growth >= thresholds.memoryLeakMinGrowth {
+                    let severity = memoryLeakConfig.severity(growth: growth, currentRSS: lastRSS)
                     anomalies.append(Anomaly(
                         kind: .memoryLeak, pid: snap.pid, processName: snap.name,
                         reason: String(
@@ -102,7 +105,9 @@ public class AnomalyDetector {
                             ByteCountFormatter.string(fromByteCount: Int64(firstRSS), countStyle: .memory),
                             ByteCountFormatter.string(fromByteCount: Int64(lastRSS), countStyle: .memory)
                         ),
-                        value: Double(lastRSS)
+                        value: Double(lastRSS),
+                        memoryLeakSeverity: severity,
+                        memoryGrowthBytes: growth
                     ))
                 }
             }
@@ -119,9 +124,20 @@ public class AnomalyDetector {
     private func dedupe(_ anomalies: [Anomaly]) -> [Anomaly] {
         var best: [String: Anomaly] = [:]
         for a in anomalies {
-            best[a.id] = a
+            if let existing = best[a.id] {
+                best[a.id] = preferredAnomaly(existing, a)
+            } else {
+                best[a.id] = a
+            }
         }
         return Array(best.values)
+    }
+
+    private func preferredAnomaly(_ existing: Anomaly, _ incoming: Anomaly) -> Anomaly {
+        guard existing.kind == .memoryLeak, incoming.kind == .memoryLeak else { return incoming }
+        if existing.memoryLeakSeverity == .severe { return existing }
+        if incoming.memoryLeakSeverity == .severe { return incoming }
+        return incoming
     }
 
     private func countHighCPU(history: [ProcessHistorySnapshot]) -> Int {
