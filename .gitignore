@@ -1,0 +1,6 @@
+.build/
+dist/
+.toolchain/
+*.dmg
+*.app
+.DS_Store

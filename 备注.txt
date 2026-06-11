@@ -1,0 +1,3 @@
+开发完删除
+
+rm -rf /Users/wujiangbo/ActivityGuard/.toolchain
