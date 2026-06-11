@@ -4,3 +4,5 @@ dist/
 *.dmg
 *.app
 .DS_Store
+
+.idea/
